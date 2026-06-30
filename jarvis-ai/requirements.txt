@@ -19,7 +19,6 @@ ib_insync>=0.9.86
 
 # Crypto
 python-binance>=1.0.19
-pybitget>=1.0.6
 
 # Market Data
 yfinance>=0.2.50
@@ -39,3 +38,4 @@ rich>=13.9.0         # pretty terminal output
 typer>=0.13.0        # CLI
 aiosmtplib>=3.0.0   # async email
 jinja2>=3.1.0        # email templates
+pyyaml>=6.0.2       # agent_config.yaml

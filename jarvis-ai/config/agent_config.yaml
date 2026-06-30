@@ -1,0 +1,59 @@
+# Jarvis Agent Configuration
+# Edit this file to tune behavior — no code changes needed.
+# Restart the container after changes: docker compose restart jarvis
+
+# ── Model ────────────────────────────────────────────────────
+model:
+  name: claude-sonnet-4-6
+  max_tokens: 4096
+  max_tokens_stream: 2048
+
+# ── Quiet Window ─────────────────────────────────────────────
+# Proactive notices are held during these hours (24h format, local server time).
+# Only critical-priority notices break the window.
+quiet_window:
+  start_hour: 0    # midnight
+  end_hour: 6      # 6 AM
+
+# ── Briefings ────────────────────────────────────────────────
+briefing:
+  daily_time: "07:00"       # also set in .env as BRIEFING_TIME
+  weekly_day: "monday"
+  weekly_hour: 8
+
+# ── Portfolio Heartbeat ──────────────────────────────────────
+portfolio:
+  snapshot_hours: [9, 13, 17, 21]   # hours to take a snapshot (market hours)
+  # Alert thresholds — Jarvis queues a notice if these are breached
+  alert_pct_drop_1h: 5.0     # single position drops >5% in an hour
+  alert_pct_drop_day: 10.0   # single position drops >10% in a day
+  alert_enabled: true
+
+# ── Deal Pipeline Heartbeat ──────────────────────────────────
+deals:
+  # Surface deals whose next_action_date is within this many days
+  upcoming_action_days: 2
+  check_interval_hours: 12
+  check_enabled: true
+
+# ── Market Alerts ────────────────────────────────────────────
+market:
+  # Crypto positions to watch for large moves
+  large_move_pct: 8.0        # alert if any watched asset moves >8% in 24h
+  check_interval_hours: 4
+  check_enabled: true
+
+# ── Notice Priorities ────────────────────────────────────────
+# low   → accumulates in notice log, never interrupts
+# high  → shown prominently on next UI open, still respects quiet window
+# critical → breaks quiet window (use sparingly — it will wake you up)
+notice_defaults:
+  portfolio_drop: high
+  deal_upcoming: low
+  large_market_move: high
+  briefing_ready: low
+
+# ── Kill Switch ──────────────────────────────────────────────
+# POST /api/kill-switch {"paused": true} to pause all proactive jobs.
+# This setting is runtime-only — restart always resumes the heartbeat.
+heartbeat_paused: false

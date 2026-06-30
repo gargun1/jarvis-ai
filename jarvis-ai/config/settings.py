@@ -7,6 +7,7 @@ class Settings(BaseSettings):
 
     # Anthropic
     anthropic_api_key: str
+    model_name: str = "claude-sonnet-4-6"  # override in .env or agent_config.yaml
 
     # IBKR
     ibkr_host: str = "127.0.0.1"

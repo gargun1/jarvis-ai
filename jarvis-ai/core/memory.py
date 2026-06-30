@@ -1,5 +1,6 @@
 """
-Jarvis Memory — PostgreSQL-backed state: portfolio snapshots, deal pipeline, chat history.
+Jarvis Memory — PostgreSQL-backed state: portfolio snapshots, deal pipeline,
+durable facts (long-term memory), proactive notices, and audit log.
 """
 from datetime import datetime
 from typing import Optional
@@ -59,8 +60,39 @@ class Memory:
                     messages JSONB DEFAULT '[]'
                 );
 
+                CREATE TABLE IF NOT EXISTS facts (
+                    id SERIAL PRIMARY KEY,
+                    key TEXT UNIQUE NOT NULL,
+                    value TEXT NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+
+                CREATE TABLE IF NOT EXISTS notices (
+                    id SERIAL PRIMARY KEY,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    priority TEXT NOT NULL DEFAULT 'low',
+                    title TEXT NOT NULL,
+                    body TEXT,
+                    source TEXT,
+                    dismissed BOOLEAN DEFAULT FALSE,
+                    dismissed_at TIMESTAMPTZ
+                );
+
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id SERIAL PRIMARY KEY,
+                    occurred_at TIMESTAMPTZ DEFAULT NOW(),
+                    action_type TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    detail JSONB,
+                    result TEXT,
+                    error TEXT
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_snapshots_time ON portfolio_snapshots(snapshot_time DESC);
                 CREATE INDEX IF NOT EXISTS idx_kpis_metric ON kpis(metric, recorded_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_notices_undismissed ON notices(dismissed, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(occurred_at DESC);
             """)
 
     # ── Portfolio Snapshots ──────────────────────────────────
@@ -136,6 +168,84 @@ class Memory:
             rows = await conn.fetch(
                 "SELECT * FROM kpis WHERE metric=$1 ORDER BY recorded_at DESC LIMIT $2",
                 metric, limit,
+            )
+            return [dict(r) for r in rows]
+
+
+    # ── Durable Facts (long-term memory) ─────────────────────
+
+    async def save_fact(self, key: str, value: str):
+        """Store or update a named fact. Key should be short and descriptive."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO facts (key, value, updated_at)
+                   VALUES ($1, $2, NOW())
+                   ON CONFLICT (key) DO UPDATE SET value=$2, updated_at=NOW()""",
+                key, value,
+            )
+
+    async def delete_fact(self, key: str):
+        async with self.pool.acquire() as conn:
+            await conn.execute("DELETE FROM facts WHERE key=$1", key)
+
+    async def get_all_facts(self) -> list[dict]:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("SELECT key, value, updated_at FROM facts ORDER BY key")
+            return [dict(r) for r in rows]
+
+    async def get_facts_as_text(self) -> str:
+        """Return facts formatted for injection into the system prompt."""
+        facts = await self.get_all_facts()
+        if not facts:
+            return ""
+        lines = [f"- {f['key']}: {f['value']}" for f in facts]
+        return "Things I know about Garrett:\n" + "\n".join(lines)
+
+    # ── Notices (proactive surface) ───────────────────────────
+
+    async def add_notice(self, title: str, body: str = None, priority: str = "low",
+                         source: str = None) -> int:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """INSERT INTO notices (title, body, priority, source)
+                   VALUES ($1, $2, $3, $4) RETURNING id""",
+                title, body, priority, source,
+            )
+            return row["id"]
+
+    async def get_pending_notices(self) -> list[dict]:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM notices WHERE dismissed=FALSE ORDER BY created_at DESC",
+            )
+            return [dict(r) for r in rows]
+
+    async def dismiss_notice(self, notice_id: int):
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE notices SET dismissed=TRUE, dismissed_at=NOW() WHERE id=$1",
+                notice_id,
+            )
+
+    # ── Audit Log ─────────────────────────────────────────────
+
+    async def log_action(self, action_type: str, action: str,
+                         detail: dict = None, result: str = None, error: str = None):
+        """Log a tool call, heartbeat event, or any notable action."""
+        import json
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO audit_log (action_type, action, detail, result, error)
+                   VALUES ($1, $2, $3, $4, $5)""",
+                action_type, action,
+                json.dumps(detail) if detail else None,
+                result, error,
+            )
+
+    async def get_audit_log(self, limit: int = 50) -> list[dict]:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM audit_log ORDER BY occurred_at DESC LIMIT $1", limit,
             )
             return [dict(r) for r in rows]
 
