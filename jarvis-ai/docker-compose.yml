@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  jarvis:
+    build: .
+    container_name: jarvis
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - jarvis-net
+
+  db:
+    image: postgres:16-alpine
+    container_name: jarvis-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: jarvis
+      POSTGRES_USER: jarvis
+      POSTGRES_PASSWORD: jarvis_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jarvis"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jarvis-net
+
+volumes:
+  pgdata:
+
+networks:
+  jarvis-net:
